@@ -1,0 +1,74 @@
+global:
+  environment: staging
+  domain: staging.kratos.ai
+  imageTag: staging
+
+coreApi:
+  replicas: 2
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "200m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 4
+
+bff:
+  replicas: 1
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "500m"
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+
+frontend:
+  replicas: 1
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "100m"
+    limits:
+      memory: "256Mi"
+      cpu: "300m"
+  autoscaling:
+    minReplicas: 1
+    maxReplicas: 3
+
+workers:
+  agent:
+    replicas: 1
+  tool:
+    replicas: 1
+
+postgres:
+  storage: 10Gi
+  storageClass: standard
+
+redis:
+  storage: 5Gi
+  storageClass: standard
+
+weaviate:
+  storage: 10Gi
+  storageClass: standard
+
+ingress:
+  tls:
+    issuer: letsencrypt-staging
+
+monitoring:
+  prometheus:
+    scrapeInterval: 30s
+  jaeger:
+    enabled: false
+
+backups:
+  enabled: false

@@ -1,0 +1,90 @@
+global:
+  environment: production
+  domain: kratos.ai
+  imageTag: v0.1.0
+
+coreApi:
+  replicas: 6
+  resources:
+    requests:
+      memory: "1Gi"
+      cpu: "1"
+    limits:
+      memory: "4Gi"
+      cpu: "4"
+  autoscaling:
+    minReplicas: 6
+    maxReplicas: 20
+
+bff:
+  replicas: 5
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "500m"
+    limits:
+      memory: "1Gi"
+      cpu: "2000m"
+  autoscaling:
+    minReplicas: 4
+    maxReplicas: 15
+
+frontend:
+  replicas: 5
+  resources:
+    requests:
+      memory: "512Mi"
+      cpu: "300m"
+    limits:
+      memory: "1Gi"
+      cpu: "1000m"
+  autoscaling:
+    minReplicas: 4
+    maxReplicas: 12
+
+workers:
+  agent:
+    replicas: 4
+    autoscaling:
+      minReplicas: 4
+      maxReplicas: 30
+  tool:
+    replicas: 2
+
+postgres:
+  replicas: 2
+  storage: 200Gi
+  storageClass: ssd
+
+redis:
+  replicas: 3
+  maxMemory: 2gb
+  storage: 50Gi
+  storageClass: ssd
+
+weaviate:
+  replicas: 2
+  storage: 200Gi
+  storageClass: ssd
+
+ingress:
+  tls:
+    issuer: letsencrypt-production
+
+monitoring:
+  prometheus:
+    scrapeInterval: 15s
+  grafana:
+    enabled: true
+  jaeger:
+    enabled: true
+
+backups:
+  enabled: true
+  schedule: "0 2 * * *"
+  retention: 30
+  destination: gs://kratos-backups-production
+
+security:
+  networkPolicy:
+    enabled: true

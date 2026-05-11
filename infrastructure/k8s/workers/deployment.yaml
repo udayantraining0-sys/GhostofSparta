@@ -1,0 +1,120 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-agent-worker
+  namespace: kratos
+  labels:
+    app: kratos-agent-worker
+    component: workers
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kratos-agent-worker
+  template:
+    metadata:
+      labels:
+        app: kratos-agent-worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/kratos/core-api:${IMAGE_TAG}
+        command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "agent", "-l", "info", "-c", "4"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: kratos-database
+              key: url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: kratos-redis
+              key: url
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kratos-api-keys
+              key: openai-api-key
+              optional: true
+        - name: ANTHROPIC_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: kratos-api-keys
+              key: anthropic-api-key
+              optional: true
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-tool-worker
+  namespace: kratos
+  labels:
+    app: kratos-tool-worker
+    component: workers
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kratos-tool-worker
+  template:
+    metadata:
+      labels:
+        app: kratos-tool-worker
+    spec:
+      containers:
+      - name: worker
+        image: ghcr.io/kratos/core-api:${IMAGE_TAG}
+        command: ["celery", "-A", "app.workers.celery_app", "worker", "-Q", "tool", "-l", "info", "-c", "2"]
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: kratos-database
+              key: url
+        - name: REDIS_URL
+          valueFrom:
+            secretKeyRef:
+              name: kratos-redis
+              key: url
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: kratos-agent-worker-hpa
+  namespace: kratos
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: kratos-agent-worker
+  minReplicas: 2
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 60

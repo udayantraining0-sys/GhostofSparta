@@ -1,0 +1,173 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kratos-core-api
+  namespace: kratos
+  labels:
+    release: prometheus
+    app: kratos
+spec:
+  selector:
+    matchLabels:
+      app: kratos-core-api
+  endpoints:
+  - port: http
+    path: /api/v1/system/metrics
+    interval: 15s
+    scrapeTimeout: 10s
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kratos-grafana-dashboards
+  namespace: monitoring
+  labels:
+    grafana_dashboard: "1"
+data:
+  kratos-overview.json: |
+    {
+      "title": "KRATOS - System Overview",
+      "panels": [
+        {
+          "title": "Agent Activity",
+          "targets": [{ "expr": "rate(agent_executions_total[5m])" }]
+        },
+        {
+          "title": "Model Latency (p95)",
+          "targets": [{ "expr": "histogram_quantile(0.95, rate(model_latency_seconds_bucket[5m]))" }]
+        },
+        {
+          "title": "Active WebSocket Connections",
+          "targets": [{ "expr": "active_websocket_connections" }]
+        },
+        {
+          "title": "Memory Operations/sec",
+          "targets": [{ "expr": "rate(memory_operations_total[5m])" }]
+        },
+        {
+          "title": "Token Usage",
+          "targets": [{ "expr": "rate(token_usage_total[5m])" }]
+        },
+        {
+          "title": "Error Rate",
+          "targets": [{ "expr": "rate(http_errors_total[5m])" }]
+        }
+      ]
+    }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-grafana
+  namespace: monitoring
+  labels:
+    app: grafana
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: grafana
+  template:
+    metadata:
+      labels:
+        app: grafana
+    spec:
+      containers:
+      - name: grafana
+        image: grafana/grafana:latest
+        ports:
+        - containerPort: 3000
+        env:
+        - name: GF_SECURITY_ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: grafana-admin
+              key: password
+              optional: true
+        volumeMounts:
+        - name: dashboards
+          mountPath: /etc/grafana/provisioning/dashboards
+        - name: datasources
+          mountPath: /etc/grafana/provisioning/datasources
+      volumes:
+      - name: dashboards
+        configMap:
+          name: kratos-grafana-dashboards
+      - name: datasources
+        configMap:
+          name: grafana-datasources
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-grafana
+  namespace: monitoring
+spec:
+  type: ClusterIP
+  selector:
+    app: grafana
+  ports:
+  - port: 3000
+    name: http
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: kratos-jaeger
+  namespace: kratos
+spec:
+  exporter:
+    endpoint: http://jaeger-collector.observability:14250
+  propagators:
+    - tracecontext
+    - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "0.1"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kratos-jaeger
+  namespace: observability
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger
+  template:
+    metadata:
+      labels:
+        app: jaeger
+    spec:
+      containers:
+      - name: jaeger
+        image: jaegertracing/all-in-one:latest
+        ports:
+        - containerPort: 16686
+          name: ui
+        - containerPort: 14268
+          name: collector
+        - containerPort: 14250
+          name: grpc
+        env:
+        - name: COLLECTOR_OTLP_ENABLED
+          value: "true"
+        - name: SPAN_STORAGE_TYPE
+          value: "badger"
+        - name: BADGER_EPHEMERAL
+          value: "false"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-jaeger
+  namespace: observability
+spec:
+  selector:
+    app: jaeger
+  ports:
+  - port: 16686
+    name: ui
+  - port: 14250
+    name: grpc

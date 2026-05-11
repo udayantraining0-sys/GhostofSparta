@@ -1,0 +1,16 @@
+apiVersion: v2
+name: kratos
+description: KRATOS Sentient Agentic OS - Helm Chart
+type: application
+version: 0.1.0
+appVersion: "0.1.0"
+
+keywords:
+  - ai
+  - agents
+  - operating-system
+  - llm
+
+maintainers:
+  - name: KRATOS Team
+    email: ops@kratos.ai

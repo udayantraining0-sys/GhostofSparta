@@ -1,0 +1,105 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_DB: kratos
+      POSTGRES_USER: kratos
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-kratos}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U kratos"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  weaviate:
+    image: semitechnologies/weaviate:1.25.0
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      CLUSTER_HOSTNAME: node1
+    ports:
+      - "8080:8080"
+      - "50051:50051"
+    volumes:
+      - weaviate_data:/var/lib/weaviate
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "http://localhost:8080/v1/.well-known/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  core-api:
+    build:
+      context: ../../backend/core
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+asyncpg://kratos:kratos@postgres:5432/kratos
+      REDIS_URL: redis://redis:6379/0
+      WEAVIATE_URL: http://weaviate:8080
+      JWT_SECRET: ${JWT_SECRET:-dev-secret-change-me}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      weaviate:
+        condition: service_healthy
+    volumes:
+      - ../../backend/core:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  bff:
+    build:
+      context: ../../backend/bff
+      dockerfile: Dockerfile
+    ports:
+      - "3001:3001"
+    environment:
+      CORE_API_URL: http://core-api:8000
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - core-api
+    volumes:
+      - ../../backend/bff:/app
+
+  frontend:
+    build:
+      context: ../../frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+      NEXT_PUBLIC_WS_URL: ws://localhost:3001/ws
+    depends_on:
+      - bff
+    volumes:
+      - ../../frontend:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  postgres_data:
+  redis_data:
+  weaviate_data:

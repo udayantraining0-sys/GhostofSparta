@@ -1,0 +1,245 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kratos-postgres
+  namespace: kratos
+  labels:
+    app: kratos-postgres
+    component: database
+spec:
+  serviceName: kratos-postgres
+  replicas: 2
+  selector:
+    matchLabels:
+      app: kratos-postgres
+  template:
+    metadata:
+      labels:
+        app: kratos-postgres
+    spec:
+      containers:
+      - name: postgres
+        image: pgvector/pgvector:pg17
+        env:
+        - name: POSTGRES_DB
+          value: kratos
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: kratos-database
+              key: username
+              optional: true
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: kratos-database
+              key: password
+        ports:
+        - containerPort: 5432
+          name: postgres
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/postgresql/data
+          subPath: postgres
+        livenessProbe:
+          exec:
+            command: ["pg_isready", "-U", "kratos"]
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          exec:
+            command: ["pg_isready", "-U", "kratos"]
+          initialDelaySeconds: 10
+          periodSeconds: 5
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: ssd
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-postgres
+  namespace: kratos
+  labels:
+    app: kratos-postgres
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app: kratos-postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kratos-redis
+  namespace: kratos
+  labels:
+    app: kratos-redis
+    component: cache
+spec:
+  serviceName: kratos-redis
+  replicas: 3
+  selector:
+    matchLabels:
+      app: kratos-redis
+  template:
+    metadata:
+      labels:
+        app: kratos-redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        command:
+        - redis-server
+        - --appendonly
+        - "yes"
+        - --maxmemory
+        - "512mb"
+        - --maxmemory-policy
+        - allkeys-lru
+        - --cluster-enabled
+        - "no"
+        ports:
+        - containerPort: 6379
+          name: redis
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "768Mi"
+            cpu: "500m"
+        livenessProbe:
+          exec:
+            command: ["redis-cli", "ping"]
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /data
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: ssd
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-redis
+  namespace: kratos
+  labels:
+    app: kratos-redis
+spec:
+  type: ClusterIP
+  selector:
+    app: kratos-redis
+  ports:
+  - port: 6379
+    targetPort: 6379
+    name: redis
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: kratos-weaviate
+  namespace: kratos
+  labels:
+    app: kratos-weaviate
+    component: vector-db
+spec:
+  serviceName: kratos-weaviate
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kratos-weaviate
+  template:
+    metadata:
+      labels:
+        app: kratos-weaviate
+    spec:
+      containers:
+      - name: weaviate
+        image: semitechnologies/weaviate:1.25.0
+        env:
+        - name: AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED
+          value: "true"
+        - name: PERSISTENCE_DATA_PATH
+          value: /var/lib/weaviate
+        - name: CLUSTER_HOSTNAME
+          value: "node1"
+        - name: DEFAULT_VECTORIZER_MODULE
+          value: "none"
+        - name: ENABLE_MODULES
+          value: ""
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 50051
+          name: grpc
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /v1/.well-known/ready
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        volumeMounts:
+        - name: data
+          mountPath: /var/lib/weaviate
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes: ["ReadWriteOnce"]
+      storageClassName: ssd
+      resources:
+        requests:
+          storage: 50Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kratos-weaviate
+  namespace: kratos
+  labels:
+    app: kratos-weaviate
+spec:
+  type: ClusterIP
+  selector:
+    app: kratos-weaviate
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
+  - port: 50051
+    targetPort: 50051
+    name: grpc
